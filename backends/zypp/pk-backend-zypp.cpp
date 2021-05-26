@@ -592,20 +592,6 @@ class PkBackendZYppPrivate {
 	std::vector<std::string> signatures;
 	EventDirector eventDirector;
 	PkBackendJob *currentJob;
-#if 0
-        bool isBonsoleInit;
-        ResolverProblemList::iterator it;
-        ProblemSolutionList* sol_it;
-        char *sender;
-        
-        
-        std::list<std::string> to_install;
-        std::list<std::string> to_remove;
-        
-        std::list<struct problem> problems;
-        bool first_run;
-        
-#endif
 	pthread_mutex_t zypp_mutex;
 };
 
@@ -1490,18 +1476,7 @@ zypp_backend_pool_item_notify (PkBackendJob  *job,
 /**
   * simulate, or perform changes in pool to the system
   */
-/* LIBXML/LIBXSLT includes - remove unnecessary in future */
-#include <libxml/xmlmemory.h>
-#include <libxml/debugXML.h>
-#include <libxml/HTMLtree.h>
-#include <libxml/xmlIO.h>
-#include <libxml/DOCBparser.h>
-#include <libxml/xinclude.h>
-#include <libxml/catalog.h>
-#include <libxslt/xslt.h>
-#include <libxslt/xsltInternals.h>
-#include <libxslt/transform.h>
-#include <libxslt/xsltutils.h>
+
 struct reader_info {
   char *buffer;
   int   curr_old;
@@ -1977,26 +1952,23 @@ dependency_handle_selection(GIOChannel *source,
                             gpointer data)
 {
   
+  
+  
+  struct backend_job_private *msg_proc = (struct backend_job_private*) data;
   if (G_IO_IN != (G_IO_IN & condition)) {
   
     if (G_IO_ERR == (G_IO_ERR & condition) ||
       G_IO_HUP == (G_IO_HUP & condition) ||
       G_IO_NVAL == (G_IO_NVAL & condition)) {
       
+      pk_backend_job_error_code (msg_proc->job, PK_ERROR_ENUM_DEP_RESOLUTION_FAILED, "Error when handling dependency. PIPE problem");
       return FALSE;
     }
     
     return TRUE;
   }
-  
-  
-  #if 0
-helper->problems2.push_back(prob);
-#endif
-struct backend_job_private *msg_proc = (struct backend_job_private*) data;
   int fd = g_io_channel_unix_get_fd (source);
   
-  //fcntl(fd, F_SETFL, O_NONBLOCK);
   int flags = fcntl(fd, F_GETFL, 0);
   fcntl(fd, F_SETFL, flags | O_NONBLOCK);
   char *buffer ;
@@ -2045,7 +2017,6 @@ struct backend_job_private *msg_proc = (struct backend_job_private*) data;
         it2,
         solution_number);
       ProblemSolution solution = **it2;
-     // msg_proc->msg_proc_helper->solution_list->push_back(*it2);
       
       struct problem rproblem;
       
@@ -2069,7 +2040,6 @@ struct backend_job_private *msg_proc = (struct backend_job_private*) data;
     }
     else if (0 == strncmp("DONE!", buffer, sizeof("DONE!") - 1)) {
       /* Save resolution to file */
-      add_resolution_to_zypp(msg_proc->msg_proc_helper);
       save_transaction_to_cache("Install", msg_proc->msg_proc_helper->path_to_cache, msg_proc->msg_proc_helper, 
                                 msg_proc->to_install, msg_proc->to_remove);
       
@@ -2290,6 +2260,8 @@ zypp_perform_execution (PkBackendJob *job, ZYpp::Ptr zypp, PerformType type, gbo
                 
                   transaction_problems = rjob->msg_proc_helper;
                   path_to_cache = transaction_problems->path_to_cache;
+                  
+                  add_resolution_to_zypp(rjob->msg_proc_helper);
                 }
                 
                 transaction_problems->problems = problems;
@@ -3816,7 +3788,7 @@ backend_install_files_thread (PkBackendJob *job, GVariant *params, gpointer user
 	}
 
 	Repository repo = ResPool::instance().reposFind(name);
-        if (FALSE == job->started)
+        
 	for_(it, repo.solvablesBegin(), repo.solvablesEnd()){
 		MIL << "Setting " << *it << " for installation" << endl;
 		PoolItem(*it).status().setToBeInstalled(ResStatus::USER);
@@ -3830,7 +3802,7 @@ backend_install_files_thread (PkBackendJob *job, GVariant *params, gpointer user
           }
         }
 	
-	job->started = TRUE;
+	//job->started = TRUE;
 
 	if (!zypp_perform_execution (job, zypp, INSTALL, FALSE, transaction_flags)) {
 		pk_backend_job_error_code (job, PK_ERROR_ENUM_LOCAL_INSTALL_FAILED, "Could not install the rpm-file.");
@@ -4067,13 +4039,11 @@ backend_install_packages_thread (PkBackendJob *job, GVariant *params, gpointer u
 			to_install++;
 			PoolItem item(solvable);
 			// set status to ToBeInstalled
-                        if (FALSE == job->started) {
-			    item.status ().setToBeInstalled (ResStatus::USER);
-			    items.push_back (item);
-                        }
+			item.status ().setToBeInstalled (ResStatus::USER);
+			items.push_back (item);
 		}
 
-		job->started = true;
+		//job->started = true;
 		pk_backend_job_set_percentage (job, 40);
 
 		if (!to_install) {
@@ -4178,16 +4148,14 @@ backend_remove_packages_thread (PkBackendJob *job, GVariant *params, gpointer us
 			return;
 		}
 		PoolItem item(solvable);
-                if (FALSE == job->started)
-		  if (solvable.isSystem ()) {
-			item.status ().setToBeUninstalled (ResStatus::USER);
-			items.push_back (item);
-		  } else {
-			item.status ().resetTransact (ResStatus::USER);
-		  }
+                if (solvable.isSystem ()) {
+                    item.status ().setToBeUninstalled (ResStatus::USER);
+                    items.push_back (item);
+                } else {
+                    item.status ().resetTransact (ResStatus::USER);
+                }
 	}
-        job->started = true;
-	pk_backend_job_set_percentage (job, 40);
+        pk_backend_job_set_percentage (job, 40);
 
 	try
 	{
@@ -4693,11 +4661,9 @@ upgrade_system (PkBackendJob *job,
 		}
 	}
 
-	if (FALSE == job->started) {
 	
-          zypp->resolver ()->dupSetAllowVendorChange (ZConfig::instance ().solver_dupAllowVendorChange ());
-	  zypp->resolver ()->doUpgrade ();
-        }
+        zypp->resolver ()->dupSetAllowVendorChange (ZConfig::instance ().solver_dupAllowVendorChange ());
+	zypp->resolver ()->doUpgrade ();
 
 	zypp_perform_execution (job, zypp, UPGRADE_SYSTEM, FALSE, transaction_flags);
 
@@ -4757,12 +4723,10 @@ backend_update_packages_thread (PkBackendJob *job, GVariant *params, gpointer us
 			}
 		}
 
-		if (FALSE == job->started) {
-		  item.status ().setToBeInstalled (ResStatus::USER);
-		  Patch::constPtr patch = asKind<Patch>(item.resolvable ());
-		  zypp_check_restart (&restart, patch);
-                }
-                job->started = true;
+		item.status ().setToBeInstalled (ResStatus::USER);
+		Patch::constPtr patch = asKind<Patch>(item.resolvable ());
+		zypp_check_restart (&restart, patch);
+
 		if (restart != PK_RESTART_ENUM_NONE){
 			pk_backend_job_require_restart (job, restart, package_ids[i]);
 			restart = PK_RESTART_ENUM_NONE;
